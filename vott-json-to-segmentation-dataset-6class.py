@@ -67,18 +67,23 @@ size = 576 # 192 で割り切れる数にしておく（PSPNet 対応）
 # 出力先ディレクトリ
 output_x_train = dataset_dir + '/train_images/'
 output_y_train = dataset_dir + '/train_annotations/'
-output_x_test = dataset_dir + '/test_images/'
-output_y_test = dataset_dir + '/test_annotations/'
+output_x_val   = dataset_dir + '/val_images/'
+output_y_val   = dataset_dir + '/val_annotations/'
+output_x_test  = dataset_dir + '/test_images/'
+output_y_test  = dataset_dir + '/test_annotations/'
 output_preview = dataset_dir + '/preview/'
 os.makedirs(output_x_train, exist_ok=True)
 os.makedirs(output_y_train, exist_ok=True)
+os.makedirs(output_x_val, exist_ok=True)
+os.makedirs(output_y_val, exist_ok=True)
 os.makedirs(output_x_test, exist_ok=True)
 os.makedirs(output_y_test, exist_ok=True)
 os.makedirs(output_preview, exist_ok=True)
 
 # トレーニング用とテスト用の比率
 split_test  = 0.1
-split_train = 0.9
+split_val   = 0.1
+split_train = 0.8
 random.seed(0)
 
 def read_json(filename, source_dir, resize=True):
@@ -141,9 +146,13 @@ def read_json(filename, source_dir, resize=True):
         points = np.array(points).astype(np.int32)
         img = cv2.fillPoly(img, pts=[points], color=tag_color)
     
-    if random.random() <= (split_train / (split_train + split_test)):
+    _rand = random.random()
+    if _rand <= (split_train / (split_train + split_val + split_test)):
         output_y = output_y_train
         output_x = output_x_train
+    elif _rand <= (split_train + split_val) / (split_train + split_val + split_test):
+        output_y = output_y_val
+        output_x = output_x_val
     else:
         output_y = output_y_test
         output_x = output_x_test

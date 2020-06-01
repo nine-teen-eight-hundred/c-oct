@@ -19,7 +19,7 @@
 import os
 import sys
 import random
-os.environ["CUDA_VISIBLE_DEVICES"] = "1" # 使用するGPU番号
+os.environ["CUDA_VISIBLE_DEVICES"] = "0" # 使用するGPU番号
 
 import numpy as np
 import keras
@@ -565,7 +565,7 @@ if __name__ == "__main__":
     dataset_base_dir = "/data/kmu_wip/dataset"
 
     batch_size   = 10
-    epoches      = 1000 / batch_size
+    epoches      = 500
 
     checkpoints_path    = 'checkpoints'
     with_auxiliary_loss = False
@@ -593,14 +593,14 @@ if __name__ == "__main__":
             n_classes         = n_classes,
             train_images      = dataset_base_dir + "/train_images/",
             train_annotations = dataset_base_dir + "/train_annotations/",
-            val_images        = dataset_base_dir + "/test_images/",
-            val_annotations   = dataset_base_dir + "/test_annotations/",
+            val_images        = dataset_base_dir + "/val_images/",
+            val_annotations   = dataset_base_dir + "/val_annotations/",
             checkpoints_path  = checkpoints_path,
             epochs            = epoches,
             batch_size        = batch_size,
             val_batch_size    = batch_size,
-            steps_per_epoch     = 512, # number of training images = 981
-            val_steps_per_epoch = 122, # number of test images = 122
+            steps_per_epoch     = 512,
+            val_steps_per_epoch = 120, # number of test images = 120
             aux_loss_weight   = aux_loss_weight)
 
     elif command == 'evaluate' :
