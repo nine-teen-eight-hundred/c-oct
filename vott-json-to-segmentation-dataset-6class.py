@@ -125,6 +125,7 @@ def read_json(filename, source_dir, resize=True):
 
     shape = [size, size, 3] # BGR
     img = np.zeros(shape, dtype=np.uint8)
+    __tag_indexes = []
 
     for _region in _d['regions']:
         _tags    = _region['tags']
@@ -142,24 +143,30 @@ def read_json(filename, source_dir, resize=True):
         tag_index = tags[_tag]
         tag_color = colors[tag_index]
 
+        __tag_indexes.append(tag_index)
+
         points = [[p['x'] * scale + shift_x, p['y'] * scale + shift_y] for p in _points]
         points = np.array(points).astype(np.int32)
         img = cv2.fillPoly(img, pts=[points], color=tag_color)
     
+    _split_as = ''
     _rand = random.random()
     if _rand <= (split_train / (split_train + split_val + split_test)):
         output_y = output_y_train
         output_x = output_x_train
+        _split_as = 'train'
     elif _rand <= (split_train + split_val) / (split_train + split_val + split_test):
         output_y = output_y_val
         output_x = output_x_val
+        _split_as = 'val'
     else:
         output_y = output_y_test
         output_x = output_x_test
+        _split_as = 'test'
 
     # アノテーション画像
     filename_annotation = output_y + id + '.png'
-    cv2.imwrite(filename_annotation, img)
+    # cv2.imwrite(filename_annotation, img)
 
     # RGB 画像（サイズ統一）
     img_orig = cv2.imread(filename_orig)
@@ -176,15 +183,15 @@ def read_json(filename, source_dir, resize=True):
         img_dest = cv2.getRectSubPix(img_orig, _patch_size, _center)
 
     filename_input = output_x + id + '.png' # JPEG 圧縮で劣化するのは嫌なので
-    cv2.imwrite(filename_input, img_dest)
+    # cv2.imwrite(filename_input, img_dest)
 
     # プレビュー画像
     img_preview = cv2.addWeighted(img_dest, 1.0, img, 0.25, 0)
     filename_preview = output_preview + id + '.jpg'
-    cv2.imwrite(filename_preview, img_preview)
+    # cv2.imwrite(filename_preview, img_preview)
 
     # ファイル名の対応を出力
-    print(id + ' : ' + filename_orig)
+    print("{} : {} : {} : {}".format(id, filename_orig, _split_as, __tag_indexes))
 
 # 実行用
 if __name__ == '__main__':

@@ -1,4 +1,5 @@
 dataset
+checkpoints
 
 prepare-dataset.sh
 train.log

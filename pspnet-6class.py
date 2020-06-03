@@ -19,7 +19,7 @@
 import os
 import sys
 import random
-os.environ["CUDA_VISIBLE_DEVICES"] = "0" # 使用するGPU番号
+os.environ["CUDA_VISIBLE_DEVICES"] = "1" # 使用するGPU番号
 
 import numpy as np
 import keras
@@ -465,9 +465,9 @@ class Segmentation:
             n = len(a)
             m, se = np.mean(a), scipy.stats.sem(a)
             h = se * scipy.stats.t.ppf((1 + confidence) / 2., n-1)
-            return m-h, m+h
+            return m, m-h, m+h
 
-        print('== 各分類の IoU に対する ブートストラップ 95% 信頼区間 ==')
+        print('== 各分類の IoU に対する ブートストラップ平均と 95% 信頼区間 ==')
         for i in range(model.n_classes) :
             print("class_{}_IoU: ".format(i), end='')
             print(mean_confidence_interval(np.array(_clsw[i])))        
@@ -562,7 +562,7 @@ if __name__ == "__main__":
     input_height = 576
     input_width  = 576
     n_classes    = 7 # 6+1
-    dataset_base_dir = "/data/kmu_wip/dataset"
+    dataset_base_dir = "./dataset"
 
     batch_size   = 10
     epoches      = 500
@@ -612,9 +612,20 @@ if __name__ == "__main__":
         
         model.load_weights(weights_file)
         segmentation = Segmentation(model)
+        print("for テストデータセット")
         segmentation.evaluate(
             test_images       = dataset_base_dir + '/test_images/', 
             test_annotations  = dataset_base_dir + '/test_annotations/',
+            bootstrap_repeats = bootstrap_repeats)
+        print("for トレーニングデータセット")
+        segmentation.evaluate(
+            test_images       = dataset_base_dir + '/train_images/', 
+            test_annotations  = dataset_base_dir + '/train_annotations/',
+            bootstrap_repeats = bootstrap_repeats)
+        print("for バリデーションデータセット")
+        segmentation.evaluate(
+            test_images       = dataset_base_dir + '/val_images/', 
+            test_annotations  = dataset_base_dir + '/val_annotations/',
             bootstrap_repeats = bootstrap_repeats)
         
     elif command == 'predict' :
@@ -645,6 +656,8 @@ if __name__ == "__main__":
             5: (5, 127, 127), # 暗い黄
             6: (6, 255, 127), # 黄緑
         }
+
+        os.makedirs(os.path.join(dataset_base_dir, 'test_predict'), exist_ok=True)
 
         for name in os.listdir(os.path.join(dataset_base_dir, 'test_images')):
             image_input_path = os.path.join(dataset_base_dir, 'test_images', name)
