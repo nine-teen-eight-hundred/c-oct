@@ -2,6 +2,6 @@ dataset
 checkpoints
 
 prepare-dataset.sh
-train.log
-train.err
+*.log
+*.err
 
