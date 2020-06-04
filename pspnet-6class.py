@@ -400,13 +400,21 @@ class Segmentation:
     def evaluate(self, test_images, test_annotations, bootstrap_repeats=2000):
         model = self.model
 
+        def mean_confidence_interval(a, confidence=0.95):
+            n = len(a)
+            m, se = np.mean(a), scipy.stats.sem(a)
+            h = se * scipy.stats.t.ppf((1 + confidence) / 2., n-1)
+            return m, m-h, m+h
+        
         paths = self.get_pairs_from_paths(test_images, test_annotations)
         paths = list(zip(*paths))
         inp_images = list(paths[0])
         annotations = list(paths[1])
 
+        print('== 各画像に対する IoU ==')
+        _clsw = [[] for i in range(model.n_classes)]        
         z = []
-        for inp, ann in tqdm(zip(inp_images, annotations)):
+        for inp, ann, path in zip(inp_images, annotations, paths[0]):
             # 推論結果
             pr = self.predict(inp)
             pr = pr.argmax(axis=2)
@@ -421,7 +429,7 @@ class Segmentation:
             gt = gt.argmax(-1)
             gt = gt.flatten()
 
-            # 計算量が大きいのでブートストラップ試行前に計算する。
+            # 領域の計算（計算量が大きい部分）
             tp = np.zeros(model.n_classes) # true positive
             fp = np.zeros(model.n_classes) # false positive
             fn = np.zeros(model.n_classes) # false negative
@@ -432,12 +440,30 @@ class Segmentation:
                 fn[cl_i] += np.sum((pr != cl_i) * ((gt == cl_i)))
                 n_pixels[cl_i] += np.sum(gt == cl_i)
             z.append((tp, fp, fn, n_pixels))
-        
+
+            print(path, end='')
+            _union = tp + fp + fn
+            for i in range(model.n_classes) :
+                print("\t", end='')
+                if n_pixels[i] == 0 :
+                    print('N/A', end='')
+                elif _union[i] == 0 :
+                    print('NaH', end='')
+                else :
+                    _cl_iu = tp[i] / _union[i]
+                    _clsw[i].append(_cl_iu)
+                    print("{:.4f}".format(_cl_iu), end='')
+            print()
+
+        print('== 各画像のアノテーションに対する IoU の平均と 95% パーセンタイル区間 ==')
+        for i in range(model.n_classes) :
+            _m, _l, _h = mean_confidence_interval(np.array(_clsw[i]))
+            print("class_{}_IoU:\t{:.4f}\t{:.4f}\t{:.4f}".format(i, _m, _l, _h))
+
+        print('== 全データに対する IoU のブートストラップ平均と 95% パーセンタイル区間 ==')
         _mean = []
         _freq = []
-        _clsw = [[] for i in range(model.n_classes)]
-
-        print("bootstraping")
+        _clsw = [[] for i in range(model.n_classes)]        
         for i in tqdm(np.arange(bootstrap_repeats)):
             
             tp = np.zeros(model.n_classes)
@@ -461,20 +487,13 @@ class Segmentation:
             for i in range(model.n_classes) :
                 _clsw[i].append(cl_wise_score[i])
 
-        def mean_confidence_interval(a, confidence=0.95):
-            n = len(a)
-            m, se = np.mean(a), scipy.stats.sem(a)
-            h = se * scipy.stats.t.ppf((1 + confidence) / 2., n-1)
-            return m, m-h, m+h
-
-        print('== 各分類の IoU に対する ブートストラップ平均と 95% 信頼区間 ==')
         for i in range(model.n_classes) :
-            print("class_{}_IoU: ".format(i), end='')
-            print(mean_confidence_interval(np.array(_clsw[i])))        
-        print('mean_IoU: ', end='')
-        print(mean_confidence_interval(np.array(_mean)))
-        print('frequency_weighted_IU', end='')
-        print(mean_confidence_interval(np.array(_freq)))
+            _m, _l, _h = mean_confidence_interval(np.array(_clsw[i]))
+            print("class_{}_IoU:\t{:.4f}\t{:.4f}\t{:.4f}".format(i, _m, _l, _h))
+        _m, _l, _h = mean_confidence_interval(np.array(_mean))
+        print("mean_IoU:\t{:.4f}\t{:.4f}\t{:.4f}".format(_m, _l, _h))
+        _m, _l, _h = mean_confidence_interval(np.array(_freq))
+        print("frequency_weighted_IU:\t{:.4f}\t{:.4f}\t{:.4f}".format(_m, _l, _h))
 
 
     def train(self,
@@ -617,15 +636,15 @@ if __name__ == "__main__":
             test_images       = dataset_base_dir + '/test_images/', 
             test_annotations  = dataset_base_dir + '/test_annotations/',
             bootstrap_repeats = bootstrap_repeats)
-        print("for トレーニングデータセット")
-        segmentation.evaluate(
-            test_images       = dataset_base_dir + '/train_images/', 
-            test_annotations  = dataset_base_dir + '/train_annotations/',
-            bootstrap_repeats = bootstrap_repeats)
         print("for バリデーションデータセット")
         segmentation.evaluate(
             test_images       = dataset_base_dir + '/val_images/', 
             test_annotations  = dataset_base_dir + '/val_annotations/',
+            bootstrap_repeats = bootstrap_repeats)
+        print("for トレーニングデータセット")
+        segmentation.evaluate(
+            test_images       = dataset_base_dir + '/train_images/', 
+            test_annotations  = dataset_base_dir + '/train_annotations/',
             bootstrap_repeats = bootstrap_repeats)
         
     elif command == 'predict' :
