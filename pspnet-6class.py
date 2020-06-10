@@ -154,17 +154,17 @@ class PSPNetFactory:
         x = self.identity_block(x, kernel_size=3, filters=[128, 128, 512], stage=3, block='d')
         # f3 = x
 
-        x = self.conv_block(x, kernel_size=3, filters=[256, 256, 1024], stage=4, block='a') # 1/16
-        x = self.identity_block(x, kernel_size=3, filters=[256, 256, 1024], stage=4, block='b')
-        x = self.identity_block(x, kernel_size=3, filters=[256, 256, 1024], stage=4, block='c')
-        x = self.identity_block(x, kernel_size=3, filters=[256, 256, 1024], stage=4, block='d')
-        x = self.identity_block(x, kernel_size=3, filters=[256, 256, 1024], stage=4, block='e')
-        x = self.identity_block(x, kernel_size=3, filters=[256, 256, 1024], stage=4, block='f')
+        x = self.conv_block(x, kernel_size=3, filters=[128, 128, 512], stage=4, block='a', strides=(1, 1)) # 1/8
+        x = self.identity_block(x, kernel_size=3, filters=[128, 128, 512], stage=4, block='b')
+        x = self.identity_block(x, kernel_size=3, filters=[128, 128, 512], stage=4, block='c')
+        x = self.identity_block(x, kernel_size=3, filters=[128, 128, 512], stage=4, block='d')
+        x = self.identity_block(x, kernel_size=3, filters=[128, 128, 512], stage=4, block='e')
+        x = self.identity_block(x, kernel_size=3, filters=[128, 128, 512], stage=4, block='f')
         f4 = x
 
-        x = self.conv_block(x, kernel_size=3, filters=[512, 512, 2048], stage=5, block='a') # 1/32
-        x = self.identity_block(x, kernel_size=3, filters=[512, 512, 2048], stage=5, block='b')
-        x = self.identity_block(x, kernel_size=3, filters=[512, 512, 2048], stage=5, block='c')
+        x = self.conv_block(x, kernel_size=3, filters=[128, 128, 512], stage=5, block='a', strides=(1, 1)) # 1/8
+        x = self.identity_block(x, kernel_size=3, filters=[128, 128, 512], stage=5, block='b')
+        x = self.identity_block(x, kernel_size=3, filters=[128, 128, 512], stage=5, block='c')
         f5 = x
 
         # Pyramid Pooling Module
@@ -175,7 +175,7 @@ class PSPNetFactory:
         x = BatchNormalization()(x)
         x = Activation(activation='relu')(x)
         x = Conv2D(filters=n_classes, kernel_size=(3, 3), padding='same')(x)
-        x = self.resize_image(input=x, factors=(32, 32)) # 1/1
+        x = self.resize_image(input=x, factors=(8, 8)) # 1/1
 
         if with_auxiliary_loss:
             # sub branch for auxiliary loss feedback
@@ -187,7 +187,7 @@ class PSPNetFactory:
             aux = BatchNormalization()(aux)
             aux = Activation(activation='relu')(aux)
             aux = Conv2D(filters=n_classes, kernel_size=(3, 3), padding='same')(aux)
-            aux = self.resize_image(input=aux, factors=(16, 16)) # 1/1
+            aux = self.resize_image(input=aux, factors=(8, 8)) # 1/1
         else:
             aux = None
 
@@ -290,7 +290,7 @@ class Segmentation:
             iaa.CropAndPad(
                 percent=(-0.05, 0.1), # 各辺ランダムに 5% 切り詰め（クロッピング） 〜 10% 埋め足し（パディング）
                 pad_mode='constant',  # パディング色は値指定
-                pad_cval=(0, 255)     # パディング色の値は 0 〜 255 の間（黒〜白）
+                pad_cval=0     # パディング色の値は 0（黒）
                 # keep_size=False がないので元のサイズにリサイズされる
             ),
             # https://imgaug.readthedocs.io/en/latest/source/overview/geometric.html#affine
@@ -301,7 +301,7 @@ class Segmentation:
                 rotate=(-45, 45), # 回転角度は -45度 〜 +45度
                 shear=(-16, 16),  # シアー角度は -16度 〜 +16度
                 order=[0, 1],     # 補完方式は Nearest-neighbor か Bi-linear （ランダムに選択）
-                cval=(0, 255),    # 背景色の値は 0 〜 255（黒〜白）
+                cval=0,    # 背景色の値は 0（黒）
                 mode='constant'   # 背景色は値指定
             ),
         ], random_order=True) # 適用順序はランダム
@@ -596,10 +596,10 @@ if __name__ == "__main__":
     n_classes    = 7 # 6+1
     dataset_base_dir = "./dataset"
 
-    batch_size   = 10
+    batch_size   = 8
     epoches      = 500
 
-    checkpoints_path    = 'checkpoints'
+    checkpoints_path    = 'checkpoints-8x'
     with_auxiliary_loss = False
     aux_loss_weight     = None #0.4
 

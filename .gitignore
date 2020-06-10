@@ -1,5 +1,5 @@
 dataset
-checkpoints
+checkpoints*
 
 prepare-dataset.sh
 *.log
