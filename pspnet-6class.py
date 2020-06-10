@@ -281,31 +281,30 @@ class Segmentation:
         random.shuffle(img_seg_pairs)
         zipped = itertools.cycle(img_seg_pairs)
 
+        # https://imgaug.readthedocs.io/en/latest/source/api_augmenters_meta.html#imgaug.augmenters.meta.Sequential
         seq = iaa.Sequential([
-            iaa.Fliplr(0.5),  # horizontally flip 50% of all images
-            iaa.Flipud(0.5),  # vertically flip 50% of all images
-            # crop images by -5% to 10% of their height/width
+            # https://imgaug.readthedocs.io/en/latest/source/overview/flip.html
+            iaa.Fliplr(0.5),  # 水平反転を 50% の確率で適用
+            iaa.Flipud(0.5),  # 垂直反転を 50% の確率で適用
+            # https://imgaug.readthedocs.io/en/latest/source/overview/size.html#cropandpad
             iaa.CropAndPad(
-                percent=(-0.05, 0.1),
-                pad_mode='constant',
-                pad_cval=(0, 255)
+                percent=(-0.05, 0.1), # 各辺ランダムに 5% 切り詰め（クロッピング） 〜 10% 埋め足し（パディング）
+                pad_mode='constant',  # パディング色は値指定
+                pad_cval=(0, 255)     # パディング色の値は 0 〜 255 の間（黒〜白）
+                # keep_size=False がないので元のサイズにリサイズされる
             ),
+            # https://imgaug.readthedocs.io/en/latest/source/overview/geometric.html#affine
+            # https://imgaug.readthedocs.io/en/latest/source/api_augmenters_geometric.html#imgaug.augmenters.geometric.Affine
             iaa.Affine(
-                # scale images to 80-120% of their size, individually per axis
-                scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
-                # translate by -20 to +20 percent (per axis)
-                translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
-                rotate=(-45, 45),  # rotate by -45 to +45 degrees
-                shear=(-16, 16),  # shear by -16 to +16 degrees
-                # use nearest neighbour or bilinear interpolation (fast)
-                order=[0, 1],
-                # if mode is constant, use a cval between 0 and 255
-                cval=(0, 255),
-                # use any of scikit-image's warping modes
-                # (see 2nd image from the top for examples)
-                mode='constant'
+                scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},               # 縦横に各 80% 〜 120% のリサイズ
+                translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)}, # 縦横に各 -20% 〜 20% の移動
+                rotate=(-45, 45), # 回転角度は -45度 〜 +45度
+                shear=(-16, 16),  # シアー角度は -16度 〜 +16度
+                order=[0, 1],     # 補完方式は Nearest-neighbor か Bi-linear （ランダムに選択）
+                cval=(0, 255),    # 背景色の値は 0 〜 255（黒〜白）
+                mode='constant'   # 背景色は値指定
             ),
-        ], random_order=True)
+        ], random_order=True) # 適用順序はランダム
 
         while True:
             X = []
@@ -412,7 +411,11 @@ class Segmentation:
         annotations = list(paths[1])
 
         print('== 各画像に対する IoU ==')
-        _clsw = [[] for i in range(model.n_classes)]        
+        print("data-id", end='')
+        for i in range(model.n_classes) :
+            print("\t{}_i\t{}_u\t{}_gt".format(i,i,i), end='')
+        print()
+
         z = []
         for inp, ann, path in zip(inp_images, annotations, paths[0]):
             # 推論結果
@@ -441,26 +444,36 @@ class Segmentation:
                 n_pixels[cl_i] += np.sum(gt == cl_i)
             z.append((tp, fp, fn, n_pixels))
 
-            print(path, end='')
+            print(os.path.basename(path), end='')
             _union = tp + fp + fn
             for i in range(model.n_classes) :
-                print("\t", end='')
-                if n_pixels[i] == 0 :
-                    print('N/A', end='')
-                elif _union[i] == 0 :
-                    print('NaH', end='')
-                else :
-                    _cl_iu = tp[i] / _union[i]
-                    _clsw[i].append(_cl_iu)
-                    print("{:.4f}".format(_cl_iu), end='')
+                print("\t{:.0f}\t{:.0f}\t{:.0f}".format(tp[i], _union[i], n_pixels[i]), end='')
             print()
+        print()
 
-        print('== 各画像のアノテーションに対する IoU の平均と 95% パーセンタイル区間 ==')
+        print('== サンプルデータセットに対する IoU ==')
+        tp = np.zeros(model.n_classes) # true positive
+        fp = np.zeros(model.n_classes) # false positive
+        fn = np.zeros(model.n_classes) # false negative
+        n_pixels = np.zeros(model.n_classes)
+        for _tp, _fp, _fn, _n_pixels in z:
+            for i in range(model.n_classes):
+                tp[i] += _tp[i]
+                fp[i] += _fp[i]
+                fn[i] += _fn[i]
+                n_pixels[i] += _n_pixels[i]
+        cl_wise_score = tp / (tp + fp + fn + 0.000000000001) # intersection over union
+        n_pixels_norm = n_pixels / np.sum(n_pixels)
+        frequency_weighted_IU = np.sum(cl_wise_score*n_pixels_norm)
+        mean_IU = np.mean(cl_wise_score)
+        
         for i in range(model.n_classes) :
-            _m, _l, _h = mean_confidence_interval(np.array(_clsw[i]))
-            print("class_{}_IoU:\t{:.4f}\t{:.4f}\t{:.4f}".format(i, _m, _l, _h))
+            print("class_{}_IoU:\t{:.4f}".format(i, cl_wise_score[i]))
+        print("mean_IoU:\t{:.4f}".format(mean_IU))
+        print("frequency_weighted_IU:\t{:.4f}".format(frequency_weighted_IU))
+        print()
 
-        print('== 全データに対する IoU のブートストラップ平均と 95% パーセンタイル区間 ==')
+        print('== サンプルデータセットに対する IoU のブートストラップ平均と 95% パーセンタイル区間 ==')
         _mean = []
         _freq = []
         _clsw = [[] for i in range(model.n_classes)]        
@@ -636,11 +649,13 @@ if __name__ == "__main__":
             test_images       = dataset_base_dir + '/test_images/', 
             test_annotations  = dataset_base_dir + '/test_annotations/',
             bootstrap_repeats = bootstrap_repeats)
+        print()
         print("for バリデーションデータセット")
         segmentation.evaluate(
             test_images       = dataset_base_dir + '/val_images/', 
             test_annotations  = dataset_base_dir + '/val_annotations/',
             bootstrap_repeats = bootstrap_repeats)
+        print()
         print("for トレーニングデータセット")
         segmentation.evaluate(
             test_images       = dataset_base_dir + '/train_images/', 
