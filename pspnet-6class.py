@@ -19,7 +19,7 @@
 import os
 import sys
 import random
-os.environ["CUDA_VISIBLE_DEVICES"] = "1" # 使用するGPU番号
+os.environ["CUDA_VISIBLE_DEVICES"] = "0" # 使用するGPU番号
 
 import numpy as np
 import keras
@@ -287,15 +287,15 @@ class Segmentation:
             iaa.Fliplr(0.5),  # 水平反転を 50% の確率で適用
             iaa.Flipud(0.5),  # 垂直反転を 50% の確率で適用
             # https://imgaug.readthedocs.io/en/latest/source/overview/size.html#cropandpad
-            iaa.CropAndPad(
-                percent=(-0.05, 0.1), # 各辺ランダムに 5% 切り詰め（クロッピング） 〜 10% 埋め足し（パディング）
-                pad_mode='constant',  # パディング色は値指定
+            iaa.Sometimes(0.5, iaa.CropAndPad(
+                percent=(-0.1, 0.1), # 各辺ランダムに 10% 切り詰め（クロッピング） 〜 10% 埋め足し（パディング）
+                pad_mode='constant', # パディング色は値指定
                 pad_cval=0     # パディング色の値は 0（黒）
                 # keep_size=False がないので元のサイズにリサイズされる
-            ),
+            )),
             # https://imgaug.readthedocs.io/en/latest/source/overview/geometric.html#affine
             # https://imgaug.readthedocs.io/en/latest/source/api_augmenters_geometric.html#imgaug.augmenters.geometric.Affine
-            iaa.Affine(
+            iaa.Sometimes(0.5, iaa.Affine(
                 scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},               # 縦横に各 80% 〜 120% のリサイズ
                 translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)}, # 縦横に各 -20% 〜 20% の移動
                 rotate=(-45, 45), # 回転角度は -45度 〜 +45度
@@ -303,7 +303,7 @@ class Segmentation:
                 order=[0, 1],     # 補完方式は Nearest-neighbor か Bi-linear （ランダムに選択）
                 cval=0,    # 背景色の値は 0（黒）
                 mode='constant'   # 背景色は値指定
-            ),
+            )),
         ], random_order=True) # 適用順序はランダム
 
         while True:
@@ -596,12 +596,12 @@ if __name__ == "__main__":
     n_classes    = 7 # 6+1
     dataset_base_dir = "./dataset"
 
-    batch_size   = 8
+    batch_size   = 6
     epoches      = 500
 
-    checkpoints_path    = 'checkpoints-8x'
-    with_auxiliary_loss = False
-    aux_loss_weight     = None #0.4
+    checkpoints_path    = 'checkpoints-8x-aux'
+    with_auxiliary_loss = True #False
+    aux_loss_weight     = 0.4 #None
 
     model = PSPNetFactory().create(
         input_height=input_height, 
@@ -632,7 +632,7 @@ if __name__ == "__main__":
             batch_size        = batch_size,
             val_batch_size    = batch_size,
             steps_per_epoch     = 512,
-            val_steps_per_epoch = 120, # number of test images = 120
+            val_steps_per_epoch = 120 / batch_size, # number of test images = 120
             aux_loss_weight   = aux_loss_weight)
 
     elif command == 'evaluate' :
