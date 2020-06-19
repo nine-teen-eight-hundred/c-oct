@@ -5,3 +5,5 @@ prepare-dataset.sh
 *.log
 *.err
 
+venv35
+ds-random-seed-*

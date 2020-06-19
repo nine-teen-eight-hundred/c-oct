@@ -84,7 +84,7 @@ os.makedirs(output_preview, exist_ok=True)
 split_test  = 0.1
 split_val   = 0.1
 split_train = 0.8
-random.seed(0)
+random.seed(777)
 
 def read_json(filename, source_dir, resize=True):
     fp = open(filename)
@@ -104,12 +104,6 @@ def read_json(filename, source_dir, resize=True):
     if os.path.exists(filename_orig) == False:
         print('[Wargning] ' + id + ' : skipped missing file: ' + name)
         return
-
-    # print(
-    #     'filename:', filename, 
-    #     ', name: ', name, 
-    #     ', width: ', width, 
-    #     ', height: ', height)
 
     if resize:
         if (width > height):
@@ -150,23 +144,24 @@ def read_json(filename, source_dir, resize=True):
         img = cv2.fillPoly(img, pts=[points], color=tag_color)
     
     _split_as = ''
-    _rand = random.random()
-    if _rand <= (split_train / (split_train + split_val + split_test)):
+    if random.random() < split_train / (split_train + split_val + split_test):
         output_y = output_y_train
         output_x = output_x_train
         _split_as = 'train'
-    elif _rand <= (split_train + split_val) / (split_train + split_val + split_test):
-        output_y = output_y_val
-        output_x = output_x_val
-        _split_as = 'val'
     else:
-        output_y = output_y_test
-        output_x = output_x_test
-        _split_as = 'test'
+        if random.random() < split_test / (split_test + split_val):
+            output_y = output_y_test
+            output_x = output_x_test
+            _split_as = 'test'
+        else:
+            output_y = output_y_val
+            output_x = output_x_val
+            _split_as = 'val'
+
 
     # アノテーション画像
     filename_annotation = output_y + id + '.png'
-    # cv2.imwrite(filename_annotation, img)
+    cv2.imwrite(filename_annotation, img)
 
     # RGB 画像（サイズ統一）
     img_orig = cv2.imread(filename_orig)
@@ -183,12 +178,12 @@ def read_json(filename, source_dir, resize=True):
         img_dest = cv2.getRectSubPix(img_orig, _patch_size, _center)
 
     filename_input = output_x + id + '.png' # JPEG 圧縮で劣化するのは嫌なので
-    # cv2.imwrite(filename_input, img_dest)
+    cv2.imwrite(filename_input, img_dest)
 
     # プレビュー画像
     img_preview = cv2.addWeighted(img_dest, 1.0, img, 0.25, 0)
     filename_preview = output_preview + id + '.jpg'
-    # cv2.imwrite(filename_preview, img_preview)
+    cv2.imwrite(filename_preview, img_preview)
 
     # ファイル名の対応を出力
     print("{} : {} : {} : {}".format(id, filename_orig, _split_as, __tag_indexes))

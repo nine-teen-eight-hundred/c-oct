@@ -1,4 +1,5 @@
-numpy
-scikit-image
+# tensorflow-gpu == 2.0.0
+keras
+tqdm
 opencv-python
 imgaug

@@ -287,23 +287,23 @@ class Segmentation:
             iaa.Fliplr(0.5),  # 水平反転を 50% の確率で適用
             iaa.Flipud(0.5),  # 垂直反転を 50% の確率で適用
             # https://imgaug.readthedocs.io/en/latest/source/overview/size.html#cropandpad
-            iaa.CropAndPad(
-                percent=(-0.05, 0.1), # 各辺ランダムに 5% 切り詰め（クロッピング） 〜 10% 埋め足し（パディング）
-                pad_mode='constant',  # パディング色は値指定
-                pad_cval=(0, 255)     # パディング色の値は 0 〜 255 の間（黒〜白）
+            iaa.Sometimes(0.5, iaa.CropAndPad(
+                percent=(-0.1, 0.1), # 各辺ランダムに 10% 切り詰め（クロッピング） 〜 10% 埋め足し（パディング）
+                pad_mode='constant', # パディング色は値指定
+                pad_cval=0     # パディング色の値は 0（黒）
                 # keep_size=False がないので元のサイズにリサイズされる
-            ),
+            )),
             # https://imgaug.readthedocs.io/en/latest/source/overview/geometric.html#affine
             # https://imgaug.readthedocs.io/en/latest/source/api_augmenters_geometric.html#imgaug.augmenters.geometric.Affine
-            iaa.Affine(
+            iaa.Sometimes(0.5, iaa.Affine(
                 scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},               # 縦横に各 80% 〜 120% のリサイズ
                 translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)}, # 縦横に各 -20% 〜 20% の移動
                 rotate=(-45, 45), # 回転角度は -45度 〜 +45度
                 shear=(-16, 16),  # シアー角度は -16度 〜 +16度
                 order=[0, 1],     # 補完方式は Nearest-neighbor か Bi-linear （ランダムに選択）
-                cval=(0, 255),    # 背景色の値は 0 〜 255（黒〜白）
+                cval=0,    # 背景色の値は 0（黒）
                 mode='constant'   # 背景色は値指定
-            ),
+            )),
         ], random_order=True) # 適用順序はランダム
 
         while True:
@@ -536,7 +536,10 @@ class Segmentation:
             model.compile(
                 loss=['categorical_crossentropy'],
                 optimizer=optimizer_name, 
-                metrics=['accuracy'])
+                metrics=[
+                    'accuracy', 
+                    # keras.metrics.MeanIoU(num_classes=n_classes), # requires TF 2.0.0 or later
+                ])
         else:
             assert aux_loss_weight < 1.0
             assert aux_loss_weight >= 0.0
@@ -545,7 +548,7 @@ class Segmentation:
                 loss=['categorical_crossentropy', 'categorical_crossentropy'], 
                 loss_weights=[1.0 - aux_loss_weight, aux_loss_weight],
                 optimizer=optimizer_name, 
-                metrics=['accuracy'])
+                metrics=['accuracy', keras.metrics.MeanIoU(num_classes=n_classes)])
 
         train_gen = self.image_segmentation_generator(
             train_images, train_annotations,  batch_size,  n_classes,
@@ -632,7 +635,7 @@ if __name__ == "__main__":
             batch_size        = batch_size,
             val_batch_size    = batch_size,
             steps_per_epoch     = 512,
-            val_steps_per_epoch = 120, # number of test images = 120
+            val_steps_per_epoch = 112, # number of test images = 112
             aux_loss_weight   = aux_loss_weight)
 
     elif command == 'evaluate' :
@@ -644,6 +647,7 @@ if __name__ == "__main__":
         
         model.load_weights(weights_file)
         segmentation = Segmentation(model)
+        print()
         print("for テストデータセット")
         segmentation.evaluate(
             test_images       = dataset_base_dir + '/test_images/', 
