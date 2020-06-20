@@ -17,12 +17,14 @@
 画像セグメンテーションタスクの学習データセットを生成するツール。
 
 - vott-json-to-segmentation-dataset-6class.py
+- vott-json-to-segmentation-dataset-5class.py
 
 ### モデル並びに学習・評価プログラム
 
 PSPNet ベースの画像セグメンテーションモデルと、学習・評価プログラムの実装。
 
 - pspnet-6-class.py
+- pspnet-5-class.py
 
 ### 画像連結ツール
 
@@ -30,13 +32,6 @@ PSPNet ベースの画像セグメンテーションモデルと、学習・評�
 
 - concat-images.py
 
-### 実験のため作ったけれども、最終的に必要なく、更新もしていないもの
-
-- vott-json-to-segmentation-dataset-4class.py
-- vott-json-to-segmentation-dataset-2class.py
-- pspnet-4-class.py
-
-使うのであれば６分類用のプログラムを参考に、同じように修正する必要があります。
 
 # 含まれていないもの
 

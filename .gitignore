@@ -2,8 +2,11 @@ dataset
 checkpoints
 
 prepare-dataset.sh
+count-dataset.sh
+upload-release-asset.py
+
 *.log
 *.err
 
-venv35
+venv35*
 ds-random-seed-*

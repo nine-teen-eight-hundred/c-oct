@@ -7,7 +7,7 @@
 ## に使う学習データを作成するスクリプト。
 ##
 ## Usage:
-##     python3 vott-json-to-segmentation-dataset-4class.py {vott-target-dir} {vott-source-dir} {resize|center}
+##     python3 vott-json-to-segmentation-dataset.py {vott-target-dir} {vott-source-dir} {resize|center}
 ## 
 ## vott-target-dir: JSON ファイルがある場所
 ## vott-source-dir: 画像ファイルがある場所
@@ -26,18 +26,15 @@ import random
 import glob
 
 # データセット出力先ディレクトリ
-dataset_dir = './dataset-2class'
+dataset_dir = './dataset'
 
 # タグとラベルの対応
 tags = {
-    # "Fibrocalcific plaque": -1,
-    # "Fibrocalcific palque": -1,
-    "Fibrous cap atheroma": 1,
-    "TCFA": 1,
-    # "Healed erosion/rupture": -3,
-    "Intimal xanthoma": 2,
-    "Pathological intimal thickening": 2,
-    # "Calcified nodule": -6,
+    "Fibrocalcific plaque": 1, "Fibrocalcific palque": 1,
+    "Fibrous cap atheroma": 2, "TCFA": 2,
+    "Healed erosion/rupture": 3,
+    "Intimal xanthoma": 4, "Pathological intimal thickening": 4,
+    "Calcified nodule": 5,
 }
 
 # 各クラスに割り当てる BGR カラー値。
@@ -45,10 +42,13 @@ tags = {
 # B チャンネルの値がクラスのラベルとして使われる。
 # G,R チャンネルは意味を持たないので、便宜上、目視確認しやすくするために使う。
 colors = {
+    0: (0, 000, 000),
     1: (1, 000, 255),
-    2: (2, 255, 000),
+    2: (2, 127, 255),
+    3: (3, 255, 255),
+    4: (4, 255, 127),
+    5: (5, 255, 000),
 }
-
 
 # 出力画像サイズ
 # https://divamgupta.com/image-segmentation/2019/06/06/deep-learning-semantic-segmentation-keras.html
@@ -66,19 +66,24 @@ size = 576 # 192 で割り切れる数にしておく（PSPNet 対応）
 # 出力先ディレクトリ
 output_x_train = dataset_dir + '/train_images/'
 output_y_train = dataset_dir + '/train_annotations/'
-output_x_test = dataset_dir + '/test_images/'
-output_y_test = dataset_dir + '/test_annotations/'
+output_x_val   = dataset_dir + '/val_images/'
+output_y_val   = dataset_dir + '/val_annotations/'
+output_x_test  = dataset_dir + '/test_images/'
+output_y_test  = dataset_dir + '/test_annotations/'
 output_preview = dataset_dir + '/preview/'
 os.makedirs(output_x_train, exist_ok=True)
 os.makedirs(output_y_train, exist_ok=True)
+os.makedirs(output_x_val, exist_ok=True)
+os.makedirs(output_y_val, exist_ok=True)
 os.makedirs(output_x_test, exist_ok=True)
 os.makedirs(output_y_test, exist_ok=True)
 os.makedirs(output_preview, exist_ok=True)
 
 # トレーニング用とテスト用の比率
 split_test  = 0.1
-split_train = 0.9
-random.seed(0)
+split_val   = 0.1
+split_train = 0.8
+random.seed(777)
 
 def read_json(filename, source_dir, resize=True):
     fp = open(filename)
@@ -99,12 +104,6 @@ def read_json(filename, source_dir, resize=True):
         print('[Wargning] ' + id + ' : skipped missing file: ' + name)
         return
 
-    # print(
-    #     'filename:', filename, 
-    #     ', name: ', name, 
-    #     ', width: ', width, 
-    #     ', height: ', height)
-
     if resize:
         if (width > height):
             scale = size / width
@@ -119,6 +118,7 @@ def read_json(filename, source_dir, resize=True):
 
     shape = [size, size, 3] # BGR
     img = np.zeros(shape, dtype=np.uint8)
+    __tag_indexes = []
 
     for _region in _d['regions']:
         _tags    = _region['tags']
@@ -136,16 +136,27 @@ def read_json(filename, source_dir, resize=True):
         tag_index = tags[_tag]
         tag_color = colors[tag_index]
 
+        __tag_indexes.append(tag_index)
+
         points = [[p['x'] * scale + shift_x, p['y'] * scale + shift_y] for p in _points]
         points = np.array(points).astype(np.int32)
         img = cv2.fillPoly(img, pts=[points], color=tag_color)
     
-    if random.random() <= (split_train / (split_train + split_test)):
+    _split_as = ''
+    if random.random() < split_train / (split_train + split_val + split_test):
         output_y = output_y_train
         output_x = output_x_train
+        _split_as = 'train'
     else:
-        output_y = output_y_test
-        output_x = output_x_test
+        if random.random() < split_test / (split_test + split_val):
+            output_y = output_y_test
+            output_x = output_x_test
+            _split_as = 'test'
+        else:
+            output_y = output_y_val
+            output_x = output_x_val
+            _split_as = 'val'
+
 
     # アノテーション画像
     filename_annotation = output_y + id + '.png'
@@ -174,13 +185,13 @@ def read_json(filename, source_dir, resize=True):
     cv2.imwrite(filename_preview, img_preview)
 
     # ファイル名の対応を出力
-    print(id + ' : ' + filename_orig)
+    print("{} : {} : {} : {}".format(id, filename_orig, _split_as, __tag_indexes))
 
 # 実行用
 if __name__ == '__main__':
     args = sys.argv
     if (len(args) != 4):
-        exit('Usage: python3 vott-json-to-segmentation-dataset-2class.py {vott-target-dir} {vott-source-dir} {resize|center}')
+        exit('Usage: python3 vott-json-to-segmentation-dataset.py {vott-target-dir} {vott-source-dir} {resize|center}')
 
     vott_target_dir = args[1]
     vott_source_dir = args[2]

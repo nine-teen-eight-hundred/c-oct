@@ -19,7 +19,7 @@
 import os
 import sys
 import random
-os.environ["CUDA_VISIBLE_DEVICES"] = "0" # 使用するGPU番号
+os.environ["CUDA_VISIBLE_DEVICES"] = "1" # 使用するGPU番号
 
 import numpy as np
 import keras
@@ -27,6 +27,8 @@ from keras.models import *
 from keras.layers import *
 from keras.callbacks import *
 import keras.backend as K
+
+from tqdm import tqdm
 
 import cv2
 import itertools
@@ -279,31 +281,30 @@ class Segmentation:
         random.shuffle(img_seg_pairs)
         zipped = itertools.cycle(img_seg_pairs)
 
+        # https://imgaug.readthedocs.io/en/latest/source/api_augmenters_meta.html#imgaug.augmenters.meta.Sequential
         seq = iaa.Sequential([
-            iaa.Fliplr(0.5),  # horizontally flip 50% of all images
-            iaa.Flipud(0.5),  # vertically flip 50% of all images
-            # crop images by -5% to 10% of their height/width
-            iaa.CropAndPad(
-                percent=(-0.05, 0.1),
-                pad_mode='constant',
-                pad_cval=(0, 255)
-            ),
-            iaa.Affine(
-                # scale images to 80-120% of their size, individually per axis
-                scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
-                # translate by -20 to +20 percent (per axis)
-                translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
-                rotate=(-45, 45),  # rotate by -45 to +45 degrees
-                shear=(-16, 16),  # shear by -16 to +16 degrees
-                # use nearest neighbour or bilinear interpolation (fast)
-                order=[0, 1],
-                # if mode is constant, use a cval between 0 and 255
-                cval=(0, 255),
-                # use any of scikit-image's warping modes
-                # (see 2nd image from the top for examples)
-                mode='constant'
-            ),
-        ], random_order=True)
+            # https://imgaug.readthedocs.io/en/latest/source/overview/flip.html
+            iaa.Fliplr(0.5),  # 水平反転を 50% の確率で適用
+            iaa.Flipud(0.5),  # 垂直反転を 50% の確率で適用
+            # https://imgaug.readthedocs.io/en/latest/source/overview/size.html#cropandpad
+            iaa.Sometimes(0.5, iaa.CropAndPad(
+                percent=(-0.1, 0.1), # 各辺ランダムに 10% 切り詰め（クロッピング） 〜 10% 埋め足し（パディング）
+                pad_mode='constant', # パディング色は値指定
+                pad_cval=0     # パディング色の値は 0（黒）
+                # keep_size=False がないので元のサイズにリサイズされる
+            )),
+            # https://imgaug.readthedocs.io/en/latest/source/overview/geometric.html#affine
+            # https://imgaug.readthedocs.io/en/latest/source/api_augmenters_geometric.html#imgaug.augmenters.geometric.Affine
+            iaa.Sometimes(0.5, iaa.Affine(
+                scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},               # 縦横に各 80% 〜 120% のリサイズ
+                translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)}, # 縦横に各 -20% 〜 20% の移動
+                rotate=(-45, 45), # 回転角度は -45度 〜 +45度
+                shear=(-16, 16),  # シアー角度は -16度 〜 +16度
+                order=[0, 1],     # 補完方式は Nearest-neighbor か Bi-linear （ランダムに選択）
+                cval=0,    # 背景色の値は 0（黒）
+                mode='constant'   # 背景色は値指定
+            )),
+        ], random_order=True) # 適用順序はランダム
 
         while True:
             X = []
@@ -380,19 +381,133 @@ class Segmentation:
 
         x = self.get_image_array(image_input=image_input, width=input_width, height=input_height)
         x = np.array([x])
-        o = model.predict(x, batch_size=None, verbose=1, steps=None)
+        o = model.predict(x, batch_size=None, verbose=0, steps=None)
         
         if len(o) == 2:
             o = o[0]
 
-        print(o.shape) # -> (1, 331776, 5)
+        # print(o.shape) # -> (1, 331776, 7)
         result = o[0]
-        print(result.shape) # -> (331776, 5)
+        # print(result.shape) # -> (331776, 7)
 
         pr = result.reshape((output_height,  output_width, n_classes))
-        # print(pr.shape) # -> (576, 576, 5)
+        # print(pr.shape) # -> (576, 576, 7)
 
         return pr
+
+
+    def evaluate(self, test_images, test_annotations, bootstrap_repeats=2000):
+        model = self.model
+
+        def mean_confidence_interval(a, confidence=0.95):
+            n = len(a)
+            m, se = np.mean(a), scipy.stats.sem(a)
+            h = se * scipy.stats.t.ppf((1 + confidence) / 2., n-1)
+            return m, m-h, m+h
+        
+        paths = self.get_pairs_from_paths(test_images, test_annotations)
+        paths = list(zip(*paths))
+        inp_images = list(paths[0])
+        annotations = list(paths[1])
+
+        print('== 各画像に対する IoU ==')
+        print("data-id", end='')
+        for i in range(model.n_classes) :
+            print("\t{}_i\t{}_u\t{}_gt".format(i,i,i), end='')
+        print()
+
+        z = []
+        for inp, ann, path in zip(inp_images, annotations, paths[0]):
+            # 推論結果
+            pr = self.predict(inp)
+            pr = pr.argmax(axis=2)
+            pr = pr.flatten()
+
+            # 正解 ground truth
+            gt = self.get_segmentation_array(image_input=ann, 
+                                        nClasses=model.n_classes,
+                                        width=model.output_width,
+                                        height=model.output_height,
+                                        no_reshape=True)
+            gt = gt.argmax(-1)
+            gt = gt.flatten()
+
+            # 領域の計算（計算量が大きい部分）
+            tp = np.zeros(model.n_classes) # true positive
+            fp = np.zeros(model.n_classes) # false positive
+            fn = np.zeros(model.n_classes) # false negative
+            n_pixels = np.zeros(model.n_classes)
+            for cl_i in range(model.n_classes):
+                tp[cl_i] += np.sum((pr == cl_i) * (gt == cl_i))
+                fp[cl_i] += np.sum((pr == cl_i) * ((gt != cl_i)))
+                fn[cl_i] += np.sum((pr != cl_i) * ((gt == cl_i)))
+                n_pixels[cl_i] += np.sum(gt == cl_i)
+            z.append((tp, fp, fn, n_pixels))
+
+            print(os.path.basename(path), end='')
+            _union = tp + fp + fn
+            for i in range(model.n_classes) :
+                print("\t{:.0f}\t{:.0f}\t{:.0f}".format(tp[i], _union[i], n_pixels[i]), end='')
+            print()
+        print()
+
+        print('== サンプルデータセットに対する IoU ==')
+        tp = np.zeros(model.n_classes) # true positive
+        fp = np.zeros(model.n_classes) # false positive
+        fn = np.zeros(model.n_classes) # false negative
+        n_pixels = np.zeros(model.n_classes)
+        for _tp, _fp, _fn, _n_pixels in z:
+            for i in range(model.n_classes):
+                tp[i] += _tp[i]
+                fp[i] += _fp[i]
+                fn[i] += _fn[i]
+                n_pixels[i] += _n_pixels[i]
+        cl_wise_score = tp / (tp + fp + fn + 0.000000000001) # intersection over union
+        n_pixels_norm = n_pixels / np.sum(n_pixels)
+        frequency_weighted_IU = np.sum(cl_wise_score*n_pixels_norm)
+        mean_IU = np.mean(cl_wise_score)
+        
+        for i in range(model.n_classes) :
+            print("class_{}_IoU:\t{:.4f}".format(i, cl_wise_score[i]))
+        print("mean_IoU:\t{:.4f}".format(mean_IU))
+        print("frequency_weighted_IU:\t{:.4f}".format(frequency_weighted_IU))
+        print()
+
+        print('== サンプルデータセットに対する IoU のブートストラップ平均と 95% パーセンタイル区間 ==')
+        _mean = []
+        _freq = []
+        _clsw = [[] for i in range(model.n_classes)]        
+        for i in tqdm(np.arange(bootstrap_repeats)):
+            
+            tp = np.zeros(model.n_classes)
+            fp = np.zeros(model.n_classes)
+            fn = np.zeros(model.n_classes)
+            n_pixels = np.zeros(model.n_classes)
+            for idx in np.random.choice(len(z), len(z), replace=True):
+                _tp, _fp, _fn, _n_pixels = z[idx]
+                tp += _tp
+                fp += _fp
+                fn += _fn
+                n_pixels += _n_pixels
+
+            cl_wise_score = tp / (tp + fp + fn + 0.000000000001) # intersection over union
+            n_pixels_norm = n_pixels / np.sum(n_pixels)
+            frequency_weighted_IU = np.sum(cl_wise_score*n_pixels_norm)
+            mean_IU = np.mean(cl_wise_score)
+
+            _mean.append(mean_IU)
+            _freq.append(frequency_weighted_IU)
+            for i in range(model.n_classes) :
+                _clsw[i].append(cl_wise_score[i])
+
+        for i in range(model.n_classes) :
+            _m, _l, _h = mean_confidence_interval(np.array(_clsw[i]))
+            print("class_{}_IoU:\t{:.4f}\t{:.4f}\t{:.4f}".format(i, _m, _l, _h))
+        _m, _l, _h = mean_confidence_interval(np.array(_mean))
+        print("mean_IoU:\t{:.4f}\t{:.4f}\t{:.4f}".format(_m, _l, _h))
+        _m, _l, _h = mean_confidence_interval(np.array(_freq))
+        print("frequency_weighted_IU:\t{:.4f}\t{:.4f}\t{:.4f}".format(_m, _l, _h))
+
 
     def train(self,
             input_height,
@@ -421,7 +536,10 @@ class Segmentation:
             model.compile(
                 loss=['categorical_crossentropy'],
                 optimizer=optimizer_name, 
-                metrics=['accuracy'])
+                metrics=[
+                    'accuracy', 
+                    # keras.metrics.MeanIoU(num_classes=n_classes), # requires TF 2.0.0 or later
+                ])
         else:
             assert aux_loss_weight < 1.0
             assert aux_loss_weight >= 0.0
@@ -430,7 +548,7 @@ class Segmentation:
                 loss=['categorical_crossentropy', 'categorical_crossentropy'], 
                 loss_weights=[1.0 - aux_loss_weight, aux_loss_weight],
                 optimizer=optimizer_name, 
-                metrics=['accuracy'])
+                metrics=['accuracy', keras.metrics.MeanIoU(num_classes=n_classes)])
 
         train_gen = self.image_segmentation_generator(
             train_images, train_annotations,  batch_size,  n_classes,
@@ -458,29 +576,35 @@ class Segmentation:
                             callbacks=callbacks,
                             use_multiprocessing=False)
 
+import numpy as np
+import scipy.stats
+
+
+
 
 help = """
-Usage: pspnet.py train
-Usage: pspnet.py predict weights_file output_suffix
+Usage: pspnet-5class.py train
+Usage: pspnet-5class.py predict weights_file output_suffix
+Usage: pspnet-5class.py evaluate weights_file bootstrap_repeats
 """
+
 
 if __name__ == "__main__":
 
     args = sys.argv
-    if len(args) < 2 :
-        exit(help)    
+    if len(args) < 2 : exit(help)
 
     input_height = 576
     input_width  = 576
-    n_classes    = 5
-    dataset_base_dir = "/data/kmu_wip/dataset-4class"
+    n_classes    = 6 # 5 + background
+    dataset_base_dir = "./dataset"
 
-    batch_size   = 10 # 10@32x
-    epoches      = 1000 / batch_size
-    
-    checkpoints_path = 'checkpoints'
+    batch_size   = 10
+    epoches      = 500
+
+    checkpoints_path    = 'checkpoints'
     with_auxiliary_loss = False
-    aux_loss_weight = None
+    aux_loss_weight     = None #0.4
 
     model = PSPNetFactory().create(
         input_height=input_height, 
@@ -493,6 +617,10 @@ if __name__ == "__main__":
     command = args[1]
     if command == 'train' :
 
+        if len(args) > 2:
+            weights_file = args[2]
+            model.load_weights(weights_file)
+
         segmentation = Segmentation(model)
         segmentation.train(
             input_height      = input_height, 
@@ -500,17 +628,47 @@ if __name__ == "__main__":
             n_classes         = n_classes,
             train_images      = dataset_base_dir + "/train_images/",
             train_annotations = dataset_base_dir + "/train_annotations/",
-            val_images        = dataset_base_dir + "/test_images/",
-            val_annotations   = dataset_base_dir + "/test_annotations/",
+            val_images        = dataset_base_dir + "/val_images/",
+            val_annotations   = dataset_base_dir + "/val_annotations/",
             checkpoints_path  = checkpoints_path,
             epochs            = epoches,
             batch_size        = batch_size,
             val_batch_size    = batch_size,
-            steps_per_epoch     = 512, # number of training images = 981
-            val_steps_per_epoch = 122, # number of test images = 122
+            steps_per_epoch     = 512,
+            val_steps_per_epoch = 112, # number of test images = 112
             aux_loss_weight   = aux_loss_weight)
-    
+
+    elif command == 'evaluate' :
+
+        if len(args) < 4 : exit(help)
+        
+        weights_file      = args[2]
+        bootstrap_repeats = int(args[3])
+        
+        model.load_weights(weights_file)
+        segmentation = Segmentation(model)
+        print()
+        print("for テストデータセット")
+        segmentation.evaluate(
+            test_images       = dataset_base_dir + '/test_images/', 
+            test_annotations  = dataset_base_dir + '/test_annotations/',
+            bootstrap_repeats = bootstrap_repeats)
+        print()
+        print("for バリデーションデータセット")
+        segmentation.evaluate(
+            test_images       = dataset_base_dir + '/val_images/', 
+            test_annotations  = dataset_base_dir + '/val_annotations/',
+            bootstrap_repeats = bootstrap_repeats)
+        print()
+        print("for トレーニングデータセット")
+        segmentation.evaluate(
+            test_images       = dataset_base_dir + '/train_images/', 
+            test_annotations  = dataset_base_dir + '/train_annotations/',
+            bootstrap_repeats = bootstrap_repeats)
+        
     elif command == 'predict' :
+
+        if len(args) < 4 : exit(help)
 
         weights_file  = args[2]
         output_suffix = args[3]
@@ -520,18 +678,22 @@ if __name__ == "__main__":
 
         labels = {
             0: "Background",
-            1: "Fibrocalcific plaque / Fibrocalcific palque",
+            1: "Fibrocalcific plaque",
             2: "Fibrous cap atheroma / TCFA",
             3: "Healed erosion/rupture",
             4: "Intimal xanthoma / Pathological intimal thickening",
+            5: "Calcified nodule",
         }
         colors = {
-            0: (0, 0, 0),
-            1: (1, 127, 255),
-            2: (2, 255, 000), # primary importance
-            3: (3, 255, 127),
-            4: (4, 000, 255), # secondary importance
+            0: (0, 000, 000), # 黒
+            1: (1, 000, 255), # 赤
+            2: (2, 127, 255), # オレンジ
+            3: (3, 255, 255), # 黄
+            4: (4, 255, 127), # 黄緑
+            5: (5, 255, 000), # 緑
         }
+
+        os.makedirs(os.path.join(dataset_base_dir, 'test_predict'), exist_ok=True)
 
         for name in os.listdir(os.path.join(dataset_base_dir, 'test_images')):
             image_input_path = os.path.join(dataset_base_dir, 'test_images', name)
