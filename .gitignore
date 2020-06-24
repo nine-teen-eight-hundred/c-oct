@@ -1,8 +1,7 @@
 dataset
 checkpoints
 
-prepare-dataset.sh
-count-dataset.sh
+*.sh
 upload-release-asset.py
 
 *.log
