@@ -599,8 +599,11 @@ if __name__ == "__main__":
     n_classes    = 5 # 4 + background
     dataset_base_dir = "./dataset"
 
-    batch_size   = 10
-    epoches      = 500
+    epoches             = 200
+    batch_size          = 10
+    steps_per_epoch     = 1000
+    val_batch_size      = 2
+    val_steps_per_epoch = 112 / val_batch_size # number of test images = 112
 
     checkpoints_path    = 'checkpoints'
     with_auxiliary_loss = False
@@ -631,11 +634,11 @@ if __name__ == "__main__":
             val_images        = dataset_base_dir + "/val_images/",
             val_annotations   = dataset_base_dir + "/val_annotations/",
             checkpoints_path  = checkpoints_path,
-            epochs            = epoches,
-            batch_size        = batch_size,
-            val_batch_size    = batch_size,
-            steps_per_epoch     = 512,
-            val_steps_per_epoch = 112, # number of test images = 112
+            epochs              = epoches,
+            batch_size          = batch_size,
+            val_batch_size      = val_batch_size,
+            steps_per_epoch     = steps_per_epoch,
+            val_steps_per_epoch = val_steps_per_epoch,
             aux_loss_weight   = aux_loss_weight)
 
     elif command == 'evaluate' :

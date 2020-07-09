@@ -1,5 +1,5 @@
 dataset
-checkpoints
+checkpoints*
 
 *.sh
 upload-release-asset.py
@@ -8,4 +8,4 @@ upload-release-asset.py
 *.err
 
 venv35*
-ds-random-seed-*
+ds-*
