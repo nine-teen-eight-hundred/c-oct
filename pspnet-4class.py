@@ -451,7 +451,6 @@ class Segmentation:
             print()
         print()
 
-        print('== サンプルデータセットに対する IoU ==')
         tp = np.zeros(model.n_classes) # true positive
         fp = np.zeros(model.n_classes) # false positive
         fn = np.zeros(model.n_classes) # false negative
@@ -462,6 +461,11 @@ class Segmentation:
                 fp[i] += _fp[i]
                 fn[i] += _fn[i]
                 n_pixels[i] += _n_pixels[i]
+        
+        precision = tp / (tp + fp)
+        recall = tp / (tp + fn)
+
+        print('== サンプルデータセットに対する IoU ==')
         cl_wise_score = tp / (tp + fp + fn + 0.000000000001) # intersection over union
         n_pixels_norm = n_pixels / np.sum(n_pixels)
         frequency_weighted_IU = np.sum(cl_wise_score*n_pixels_norm)
@@ -507,6 +511,14 @@ class Segmentation:
         print("mean_IoU:\t{:.4f}\t{:.4f}\t{:.4f}".format(_m, _l, _h))
         _m, _l, _h = mean_confidence_interval(np.array(_freq))
         print("frequency_weighted_IU:\t{:.4f}\t{:.4f}\t{:.4f}".format(_m, _l, _h))
+        print()
+
+        print('== サンプルデータセットに対する F-score ==')
+        f_score = 2 / ((1/precision) + (1/recall))
+        print("Precision : {}".format(precision))
+        print("Recall : {}".format(recall))
+        print("F-score : {}".format(f_score))
+        return
 
 
     def train(self,
