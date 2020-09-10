@@ -396,7 +396,7 @@ class Segmentation:
         return pr
 
 
-    def evaluate(self, test_images, test_annotations, bootstrap_repeats=2000):
+    def evaluate(self, test_images, test_annotations, bootstrap_repeats=None, print_each=False):
         model = self.model
 
         def mean_confidence_interval(a, confidence=0.95):
@@ -410,11 +410,12 @@ class Segmentation:
         inp_images = list(paths[0])
         annotations = list(paths[1])
 
-        print('== 各画像に対する IoU ==')
-        print("data-id", end='')
-        for i in range(model.n_classes) :
-            print("\t{}_i\t{}_u\t{}_gt".format(i,i,i), end='')
-        print()
+        if print_each:
+            print('== 各画像・各クラスに対する I, U, gt ==')
+            print("data-id", end='')
+            for i in range(model.n_classes) :
+                print("\t{}_i\t{}_u\t{}_gt".format(i,i,i), end='')
+            print()
 
         z = []
         for inp, ann, path in zip(inp_images, annotations, paths[0]):
@@ -444,11 +445,12 @@ class Segmentation:
                 n_pixels[cl_i] += np.sum(gt == cl_i)
             z.append((tp, fp, fn, n_pixels))
 
-            print(os.path.basename(path), end='')
-            _union = tp + fp + fn
-            for i in range(model.n_classes) :
-                print("\t{:.0f}\t{:.0f}\t{:.0f}".format(tp[i], _union[i], n_pixels[i]), end='')
-            print()
+            if print_each:
+                print(os.path.basename(path), end='')
+                _union = tp + fp + fn
+                for i in range(model.n_classes) :
+                    print("\t{:.0f}\t{:.0f}\t{:.0f}".format(tp[i], _union[i], n_pixels[i]), end='')
+                print()
         print()
 
         tp = np.zeros(model.n_classes) # true positive
@@ -465,59 +467,74 @@ class Segmentation:
         precision = tp / (tp + fp)
         recall = tp / (tp + fn)
 
-        print('== サンプルデータセットに対する IoU ==')
+        print('== IoU ==')
         cl_wise_score = tp / (tp + fp + fn + 0.000000000001) # intersection over union
         n_pixels_norm = n_pixels / np.sum(n_pixels)
         frequency_weighted_IU = np.sum(cl_wise_score*n_pixels_norm)
         mean_IU = np.mean(cl_wise_score)
         
         for i in range(model.n_classes) :
-            print("class_{}_IoU:\t{:.4f}".format(i, cl_wise_score[i]))
-        print("mean_IoU:\t{:.4f}".format(mean_IU))
-        print("frequency_weighted_IU:\t{:.4f}".format(frequency_weighted_IU))
+            print("class_{}:\t{:.4f}".format(i, cl_wise_score[i]))
+        print("mean:\t{:.4f}".format(mean_IU))
+        print("frequency_weighted:\t{:.4f}".format(frequency_weighted_IU))
         print()
 
-        print('== サンプルデータセットに対する IoU のブートストラップ平均と 95% パーセンタイル区間 ==')
-        _mean = []
-        _freq = []
-        _clsw = [[] for i in range(model.n_classes)]        
-        for i in tqdm(np.arange(bootstrap_repeats)):
-            
-            tp = np.zeros(model.n_classes)
-            fp = np.zeros(model.n_classes)
-            fn = np.zeros(model.n_classes)
-            n_pixels = np.zeros(model.n_classes)
-            for idx in np.random.choice(len(z), len(z), replace=True):
-                _tp, _fp, _fn, _n_pixels = z[idx]
-                tp += _tp
-                fp += _fp
-                fn += _fn
-                n_pixels += _n_pixels
+        if bootstrap_repeats != None:
+            print('== IoU のブートストラップ平均と 95% パーセンタイル区間 ==')
+            _mean = []
+            _freq = []
+            _clsw = [[] for i in range(model.n_classes)]        
+            for i in tqdm(np.arange(bootstrap_repeats)):
+                
+                tp = np.zeros(model.n_classes)
+                fp = np.zeros(model.n_classes)
+                fn = np.zeros(model.n_classes)
+                n_pixels = np.zeros(model.n_classes)
+                for idx in np.random.choice(len(z), len(z), replace=True):
+                    _tp, _fp, _fn, _n_pixels = z[idx]
+                    tp += _tp
+                    fp += _fp
+                    fn += _fn
+                    n_pixels += _n_pixels
 
-            cl_wise_score = tp / (tp + fp + fn + 0.000000000001) # intersection over union
-            n_pixels_norm = n_pixels / np.sum(n_pixels)
-            frequency_weighted_IU = np.sum(cl_wise_score*n_pixels_norm)
-            mean_IU = np.mean(cl_wise_score)
+                cl_wise_score = tp / (tp + fp + fn + 0.000000000001) # intersection over union
+                n_pixels_norm = n_pixels / np.sum(n_pixels)
+                frequency_weighted_IU = np.sum(cl_wise_score*n_pixels_norm)
+                mean_IU = np.mean(cl_wise_score)
 
-            _mean.append(mean_IU)
-            _freq.append(frequency_weighted_IU)
+                _mean.append(mean_IU)
+                _freq.append(frequency_weighted_IU)
+                for i in range(model.n_classes) :
+                    _clsw[i].append(cl_wise_score[i])
+
             for i in range(model.n_classes) :
-                _clsw[i].append(cl_wise_score[i])
+                _m, _l, _h = mean_confidence_interval(np.array(_clsw[i]))
+                print("class_{}:\t{:.4f}\t{:.4f}\t{:.4f}".format(i, _m, _l, _h))
+            _m, _l, _h = mean_confidence_interval(np.array(_mean))
+            print("mean:\t{:.4f}\t{:.4f}\t{:.4f}".format(_m, _l, _h))
+            _m, _l, _h = mean_confidence_interval(np.array(_freq))
+            print("frequency_weighted:\t{:.4f}\t{:.4f}\t{:.4f}".format(_m, _l, _h))
+            print()
 
-        for i in range(model.n_classes) :
-            _m, _l, _h = mean_confidence_interval(np.array(_clsw[i]))
-            print("class_{}_IoU:\t{:.4f}\t{:.4f}\t{:.4f}".format(i, _m, _l, _h))
-        _m, _l, _h = mean_confidence_interval(np.array(_mean))
-        print("mean_IoU:\t{:.4f}\t{:.4f}\t{:.4f}".format(_m, _l, _h))
-        _m, _l, _h = mean_confidence_interval(np.array(_freq))
-        print("frequency_weighted_IU:\t{:.4f}\t{:.4f}\t{:.4f}".format(_m, _l, _h))
-        print()
-
-        print('== サンプルデータセットに対する F-score ==')
+        print('== Precision, Recall, F-score ==')
         f_score = 2 / ((1/precision) + (1/recall))
-        print("Precision : {}".format(precision))
-        print("Recall : {}".format(recall))
-        print("F-score : {}".format(f_score))
+        print("cls#\tPrecision\tRecall\tF-score")
+        for i in range(model.n_classes):
+            print("class_{}:\t{:.4f}\t{:.4f}\t{:.4f}".format(
+                i,
+                precision[i],
+                recall[i],
+                f_score[i]))
+        print("mean:\t{:.4f}\t{:.4f}\t{:.4f}".format(
+            np.mean(precision),
+            np.mean(recall),
+            np.mean(f_score),
+        ))
+        print("frequency_weighted:\t{:.4f}\t{:.4f}\t{:.4f}".format(
+            np.sum(precision * n_pixels_norm),
+            np.sum(recall * n_pixels_norm),
+            np.sum(f_score * n_pixels_norm),
+        ))
         return
 
 
@@ -655,10 +672,14 @@ if __name__ == "__main__":
 
     elif command == 'evaluate' :
 
-        if len(args) < 4 : exit(help)
+        if len(args) < 3 : exit(help)
         
-        weights_file      = args[2]
-        bootstrap_repeats = int(args[3])
+        weights_file = args[2]
+
+        if len(args) > 3:
+            bootstrap_repeats = int(args[3])
+        else:
+            bootstrap_repeats = None
         
         model.load_weights(weights_file)
         segmentation = Segmentation(model)
